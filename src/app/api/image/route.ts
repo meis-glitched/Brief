@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import sharp from "sharp";
+import { imageCacheDir } from "@/lib/storage";
 import { assertPublicUrl } from "@/lib/url-safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CACHE_DIR = join(process.cwd(), "data", "image-cache");
+const CACHE_DIR = imageCacheDir();
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_CACHE_MB = Number.parseInt(process.env.BRIEF_IMAGE_CACHE_MB ?? "500", 10);
 const UA =

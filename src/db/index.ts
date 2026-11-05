@@ -5,10 +5,10 @@ import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { SOURCES } from "@/lib/ingest/sources";
 import { SOURCE_RATINGS } from "@/lib/source-ratings";
+import { databasePath } from "@/lib/storage";
 import * as schema from "./schema";
 
-const DB_PATH =
-  process.env.BRIEF_DB_PATH ?? join(process.cwd(), "data", "brief.db");
+const DB_PATH = databasePath();
 const MIGRATIONS_FOLDER = join(process.cwd(), "drizzle");
 
 type BriefDb = {

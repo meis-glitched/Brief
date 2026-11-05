@@ -1,36 +1,155 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Brief
 
-## Getting Started
+A local-first news intelligence desk. Brief pulls the wires, dedupes the noise, clusters coverage into stories, and writes a daily brief with a local model. Everything lives in SQLite on your machine.
 
-First, run the development server:
+## Features
+
+- **Wire feed** — 13 sources, RSS with HTML fallback, deduped by canonical URL.
+- **Stories** — TF-IDF cosine clustering groups the same event across outlets. Multi-source stories are ranked higher.
+- **Today** — lead story, multi-source coverage, source pulse, and an Ollama-written brief.
+- **History** — a dated timeline of the documented human record, from On This Day and Wikidata, with country and era filters.
+- **Country and date filters** — apply a country and a date range to Today, Stories, and the wire; filter history by country, era, and record type.
+- **Keyboard-first** — command palette, `j`/`k` navigation, save/read actions, `g`-prefixed route jumps.
+- **Source health** — per-source article counts, last fetch, RSS vs HTML mode, enable/disable, and outlet bias labels.
+- **Bias layer** — outlet-level AllSides ratings on stories and sources, with coverage bars that keep unrated sources separate.
+- **Blindspot** — recent stories where one side of the political spectrum is sharply under-represented, using a small-desk threshold.
+- **My news bias** — a local reading mirror comparing the bias mix of articles you mark read with the mix on the desk.
+- **Search** — SQLite FTS5 over headlines, summaries, and source names.
+- **Local only** — no accounts, no external services, no telemetry.
+
+## Stack
+
+Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Drizzle ORM, `better-sqlite3`, FTS5, Ollama.
+
+## Setup
+
+Requires Node.js 20+ and npm. Ollama is optional but needed for generated briefs.
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The database is created and migrated automatically at `data/brief.db`, and the source list is seeded on first use.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+To pull the wires:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run ingest
+```
 
-## Learn More
+Or use the refresh control in the app. Ingest is safe to run repeatedly; existing URLs are skipped.
 
-To learn more about Next.js, take a look at the following resources:
+### Import history
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The history timeline ships empty. Seed it with the On This Day archive (all 366 days, ancient to present):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run import:history -- --source onthisday
+```
 
-## Deploy on Vercel
+Add dated Wikidata events for a year range. The importer only keeps events with an English Wikipedia article:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run import:history -- --source wikidata --from 1500 --to 2026 --step 10
+npm run import:history -- --source wikidata --from -3000 --to 1499 --step 50
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`--source all` runs both. On This Day is resumable: re-running skips days already imported. `--include-people` adds births and deaths (off by default).
+
+Country tags for news are inferred from article text on ingest. Backfill older articles with:
+
+```bash
+npm run backfill:countries
+```
+
+### Import an existing news-aggregator database
+
+```bash
+LEGACY_DB=/path/to/news.db npm run import:legacy
+```
+
+## Local briefs
+
+Brief calls Ollama at `OLLAMA_URL` (default `http://127.0.0.1:11434`). Pull a model and set it:
+
+```bash
+ollama pull dolphin3:8b
+```
+
+```env
+OLLAMA_MODEL=dolphin3:8b
+```
+
+Briefs have a 150s generation budget. If the model is unavailable or too slow, the UI falls back to a deterministic summary of the day's coverage instead of failing.
+
+## Environment
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BRIEF_DB_PATH` | `./data/brief.db` | SQLite database location |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Local Ollama endpoint |
+| `OLLAMA_MODEL` | `dolphin3:8b` | Model used for the daily brief |
+| `BRIEF_CLUSTER_THRESHOLD` | `0.42` | Cosine similarity needed to join a story |
+| `BRIEF_CLUSTER_MIN_SHARED` | `2` | Minimum shared terms before clustering |
+| `BRIEF_IMAGE_CACHE_MB` | `500` | On-disk cache limit for proxied article images |
+| `LEGACY_DB` | — | Source DB for `npm run import:legacy` |
+
+## Scripts
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript, no emit |
+| `npm run ingest` | Fetch and cluster all enabled sources |
+| `npm run import:history` | Import On This Day and/or Wikidata history |
+| `npm run import:legacy` | Import articles from the old aggregator |
+| `npm run backfill:countries` | Infer country tags for existing articles |
+| `npm run db:generate` | Generate a Drizzle migration |
+| `npm run db:studio` | Open Drizzle Studio |
+
+## Bias data
+
+Bias labels are outlet-level ratings from [AllSides](https://www.allsides.com/media-bias/ratings), used under CC BY-NC 4.0. They are not article-level judgments, and **unrated is never treated as Center**. Brief does not scrape Ground News, Ad Fontes, or Media Bias/Fact Check.
+
+The Blindspot feed is a small-desk adaptation of Ground News' blindspot concept. It requires at least three rated sources, at least two sources from the opposing side, and an opposing share of at least 66% while the missing side is at or below 25%. With only 13 feeds, this is a prompt to widen sourcing, not a verdict.
+
+There are no AI-written coverage summaries and no factuality labels in this layer.
+
+## Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| `Cmd/Ctrl + K`, `/`, `?` | Open search and commands |
+| `g` then `t` | Go to Today |
+| `g` then `s` | Go to Stories |
+| `g` then `f` | Go to Feed |
+| `g` then `h` | Go to History |
+| `g` then `b` | Go to Blindspot |
+| `g` then `m` | Go to My news bias |
+| `g` then `v` | Go to Saved |
+| `g` then `r` | Go to Sources |
+| `j` / `k` | Move down / up the feed |
+| `Enter` | Open the focused story |
+| `s` | Save / unsave the focused article |
+| `m` | Mark read / unread |
+| `v` | Open the original article |
+| `Esc` | Close the palette or panel |
+
+## Structure
+
+```
+src/app/          routes: Today, feed, stories, story detail, history, blindspot, my bias, saved, sources, API
+src/components/   shell, command palette, filters, feed, story rows, brief panel, source UI, bias/coverage UI
+src/db/           Drizzle schema, SQLite init, FTS triggers, queries, coverage queries
+src/lib/ingest/   source definitions, fetch, ingest run
+src/lib/history/  On This Day and Wikidata importers, event upsert
+src/lib/          clustering, countries, Ollama brief, source ratings, text utilities
+scripts/          ingest, history, country backfill, legacy import CLIs
+drizzle/          generated migrations
+data/             local SQLite database (gitignored)
+```

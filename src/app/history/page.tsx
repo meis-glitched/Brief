@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArticleImage } from "@/components/article-image";
 import { EmptyState } from "@/components/empty-state";
 import { HistoryFilters } from "@/components/filters";
 import { ArrowUpRightIcon } from "@/components/icons";
@@ -10,6 +11,8 @@ import {
 } from "@/db/queries";
 import { resolveHistoryYears } from "@/lib/date-filters";
 import { formatEventDate, formatYear } from "@/lib/format";
+import { loadWikiLeadImages } from "@/lib/wiki";
+import { wikiHref, wikiTitleFromUrl } from "@/lib/wiki-links";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +52,11 @@ export default async function HistoryPage({
   const stats = getHistoryStats();
   const countries = getCountryFacets("history");
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const wikiTitles = events
+    .map((event) => wikiTitleFromUrl(event.sourceUrl))
+    .filter((title): title is string => Boolean(title));
+  const leadImages = await loadWikiLeadImages(wikiTitles);
 
   const base = new URLSearchParams();
   for (const key of ["country", "era", "kind", "from", "to"] as const) {
@@ -119,66 +127,90 @@ export default async function HistoryPage({
 
       {events.length ? (
         <div className="mt-2">
-          {events.map((event) => (
-            <article
-              key={event.id}
-              className="group grid animate-rise grid-cols-[86px_minmax(0,1fr)_auto] gap-4 border-b border-line px-1 py-4 transition-colors hover:bg-card/40 sm:grid-cols-[110px_minmax(0,1fr)_auto]"
-            >
-              <div className="text-right">
-                <span className="font-display text-xl leading-none text-ink sm:text-2xl">
-                  {formatYear(event.year)}
-                </span>
-                <span className="mt-1 block font-mono text-[9px] uppercase tracking-wider text-muted">
-                  {event.month
-                    ? formatEventDate(event.year, event.month, event.day)
-                    : event.kind === "selected"
-                      ? "Selected"
-                      : "Event"}
-                </span>
-              </div>
+          {events.map((event) => {
+            const wikiTitle = wikiTitleFromUrl(event.sourceUrl);
+            const leadImage = wikiTitle ? leadImages.get(wikiTitle) : null;
 
-              <div className="min-w-0">
-                <h2 className="text-pretty font-display text-lg leading-snug text-ink transition-colors group-hover:text-accent sm:text-xl">
-                  {event.title}
-                </h2>
-                {event.description && event.description !== event.title ? (
-                  <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-muted">
-                    {event.description}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {event.countryNames
-                    ? event.countryNames.split(" · ").map((country) => (
-                        <span
-                          key={country}
-                          className="rounded-full border border-line px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted"
-                        >
-                          {country}
-                        </span>
-                      ))
-                    : null}
-                  <span className="font-mono text-[9px] uppercase tracking-wider text-muted/60">
-                    {event.source === "wikidata" ? "Wikidata" : "On this day"}
+            return (
+              <article
+                key={event.id}
+                className="group grid animate-rise grid-cols-[86px_minmax(0,1fr)_auto] gap-4 border-b border-line px-1 py-4 transition-colors hover:bg-card/40 sm:grid-cols-[110px_minmax(0,1fr)_auto]"
+              >
+                <div className="text-right">
+                  <span className="font-display text-xl leading-none text-ink sm:text-2xl">
+                    {formatYear(event.year)}
+                  </span>
+                  <span className="mt-1 block font-mono text-[9px] uppercase tracking-wider text-muted">
+                    {event.month
+                      ? formatEventDate(event.year, event.month, event.day)
+                      : event.kind === "selected"
+                        ? "Selected"
+                        : "Event"}
                   </span>
                 </div>
-              </div>
 
-              <div className="flex items-start">
-                {event.sourceUrl ? (
-                  <a
-                    href={event.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-card hover:text-accent"
-                    aria-label="Open source"
-                    title="Open source"
-                  >
-                    <ArrowUpRightIcon className="size-4" />
-                  </a>
-                ) : null}
-              </div>
-            </article>
-          ))}
+                <div className="flex min-w-0 gap-4">
+                  {leadImage && wikiTitle ? (
+                    <Link
+                      href={wikiHref(wikiTitle)}
+                      className="hidden shrink-0 sm:block"
+                      aria-label={`Open ${wikiTitle} on Wikipedia`}
+                      title="Open on Wikipedia"
+                    >
+                      <ArticleImage
+                        url={leadImage.imageUrl}
+                        alt=""
+                        width={leadImage.width}
+                        height={leadImage.height}
+                        className="h-16 w-20 border border-line"
+                        sizes="80px"
+                      />
+                    </Link>
+                  ) : null}
+                  <div className="min-w-0">
+                    <h2 className="text-pretty font-display text-lg leading-snug text-ink transition-colors group-hover:text-accent sm:text-xl">
+                      {event.title}
+                    </h2>
+                    {event.description && event.description !== event.title ? (
+                      <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-muted">
+                        {event.description}
+                      </p>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {event.countryNames
+                        ? event.countryNames.split(" · ").map((country) => (
+                            <span
+                              key={country}
+                              className="rounded-full border border-line px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted"
+                            >
+                              {country}
+                            </span>
+                          ))
+                        : null}
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-muted/60">
+                        {event.source === "wikidata" ? "Wikidata" : "On this day"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start">
+                  {event.sourceUrl ? (
+                    <a
+                      href={event.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-card hover:text-accent"
+                      aria-label="Open source"
+                      title="Open source"
+                    >
+                      <ArrowUpRightIcon className="size-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div className="mt-8">

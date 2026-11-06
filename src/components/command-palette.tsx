@@ -8,6 +8,7 @@ import {
   BiasIcon,
   CommandIcon,
   HistoryIcon,
+  ReaderIcon,
   SavedIcon,
   SearchIcon,
   SourcesIcon,
@@ -18,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type Result = {
-  type: "story" | "article";
+  type: "story" | "article" | "wiki";
   id: number;
   title: string;
   subtitle: string;
@@ -30,6 +31,7 @@ const commands = [
   { title: "Stories", subtitle: "Clustered coverage", href: "/stories", icon: StoriesIcon },
   { title: "The wire", subtitle: "Every headline", href: "/feed", icon: WireIcon },
   { title: "History", subtitle: "The long record", href: "/history", icon: HistoryIcon },
+  { title: "Wiki", subtitle: "Reference desk", href: "/wiki", icon: ReaderIcon },
   { title: "Blindspot", subtitle: "What the desk is missing", href: "/blindspot", icon: BiasIcon },
   { title: "My news bias", subtitle: "How you read", href: "/my-bias", icon: BiasIcon },
   { title: "Saved", subtitle: "Your reading list", href: "/saved", icon: SavedIcon },
@@ -104,7 +106,7 @@ export function CommandPalette() {
         !open &&
         !typing &&
         Date.now() - lastG.current < 900 &&
-        ["t", "s", "f", "h", "b", "m", "v", "r"].includes(
+        ["t", "s", "f", "h", "w", "b", "m", "v", "r"].includes(
           event.key.toLowerCase(),
         )
       ) {
@@ -113,6 +115,7 @@ export function CommandPalette() {
           s: "/stories",
           f: "/feed",
           h: "/history",
+          w: "/wiki",
           b: "/blindspot",
           m: "/my-bias",
           v: "/saved",
@@ -311,7 +314,9 @@ export function CommandPalette() {
                           "mt-0.5 rounded px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider",
                           result.type === "story"
                             ? "bg-accent/10 text-accent"
-                            : "bg-paper-deep text-muted",
+                            : result.type === "wiki"
+                              ? "bg-ink/5 text-ink-soft"
+                              : "bg-paper-deep text-muted",
                         )}
                       >
                         {result.type}
@@ -343,7 +348,7 @@ export function CommandPalette() {
               <span>↑↓ navigate</span>
               <span>↵ open</span>
               <span className="ml-auto hidden sm:inline">
-                G T / S / F / H / B / M / V / R
+                G T / S / F / H / W / B / M / V / R
               </span>
               {total === 0 && !showCommands ? <span>no matches</span> : null}
             </div>

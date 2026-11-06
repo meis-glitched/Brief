@@ -6,7 +6,7 @@ import { MobileNav, NavLinks } from "./nav-links";
 import { RefreshButton } from "./refresh-button";
 import { SearchTrigger } from "./search-trigger";
 import { ThemeToggle } from "./theme-toggle";
-import { SignalIcon } from "./icons";
+import { ReaderIcon, SignalIcon } from "./icons";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +41,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <p className="mb-3 px-3 rule-label">The desk</p>
           <NavLinks stats={stats} />
           <Link
-            href="/my-bias"
+            href="/wiki"
             className="mt-3 flex items-center justify-between rounded-md px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-muted transition-colors hover:bg-card hover:text-ink"
+          >
+            <span className="flex items-center gap-2">
+              <ReaderIcon className="size-3.5" />
+              Reference desk
+            </span>
+            <span aria-hidden="true">→</span>
+          </Link>
+          <Link
+            href="/my-bias"
+            className="mt-1 flex items-center justify-between rounded-md px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-muted transition-colors hover:bg-card hover:text-ink"
           >
             My news bias
             <span aria-hidden="true">→</span>

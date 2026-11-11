@@ -1,6 +1,7 @@
 import { sqlite } from "@/db";
 import { getBrief, getTodayStories } from "@/db/queries";
 import { dayKey, formatTime } from "./format";
+import { logWarn } from "./logger";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "dolphin3:8b";
@@ -12,8 +13,8 @@ export type BriefResult = {
   fallback: boolean;
 };
 
-function buildPrompt(): string {
-  const stories = getTodayStories(8);
+async function buildPrompt(): Promise<string> {
+  const stories = await getTodayStories(8);
   const lines = stories.map((story, index) => {
     const sources = story.sourceNames ?? "unknown";
     return `${index + 1}. ${story.title}\n   Coverage: ${sources}\n   ${story.summary ?? ""}`;
@@ -34,8 +35,8 @@ Stories:
 ${lines.join("\n\n")}`;
 }
 
-function fallbackBrief(): string {
-  const stories = getTodayStories(8);
+async function fallbackBrief(): Promise<string> {
+  const stories = await getTodayStories(8);
   if (stories.length === 0) {
     return "No stories have been ingested yet. Run a fetch to build today's brief.";
   }
@@ -83,7 +84,7 @@ export async function generateBrief(options: {
   force?: boolean;
 } = {}): Promise<BriefResult> {
   const date = options.date ?? dayKey();
-  const existing = getBrief(date);
+  const existing = await getBrief(date);
   if (existing && !options.force) {
     return {
       content: existing.content,
@@ -98,29 +99,32 @@ export async function generateBrief(options: {
   let fallback = false;
 
   try {
-    content = await callOllama(buildPrompt());
-  } catch {
-    content = fallbackBrief();
+    content = await callOllama(await buildPrompt());
+  } catch (error) {
+    logWarn("brief", "Ollama brief generation failed, using fallback", { model: OLLAMA_MODEL, url: OLLAMA_URL, error: error instanceof Error ? error.message : String(error) });
+    content = await fallbackBrief();
     model = "fallback";
     fallback = true;
   }
 
   const createdAt = Date.now();
-  sqlite
-    .prepare(
-      `INSERT INTO briefs (date, content, model, created_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(date) DO UPDATE SET
-         content = excluded.content,
-         model = excluded.model,
-         created_at = excluded.created_at`,
-    )
-    .run(date, content, model, createdAt);
+  await sqlite.run(
+    `INSERT INTO briefs (date, content, model, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET
+       content = excluded.content,
+       model = excluded.model,
+       created_at = excluded.created_at`,
+    date,
+    content,
+    model,
+    createdAt,
+  );
 
   return { content, model, createdAt, fallback };
 }
 
-export function briefTimestamp(): string {
-  const brief = getBrief();
+export async function briefTimestamp(): Promise<string> {
+  const brief = await getBrief();
   return brief ? formatTime(brief.createdAt) : "";
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { logWarn } from "./logger";
 import {
   getWikiLeadImages,
   getWikiPageCache,
@@ -94,10 +95,10 @@ function fresh(fetchedAt: number, days: number): boolean {
   return Date.now() - fetchedAt < Math.max(1, days) * 86_400_000;
 }
 
-function maybePrune() {
+async function maybePrune() {
   if (Date.now() - lastPrune < 3_600_000) return;
   lastPrune = Date.now();
-  pruneWikiCache();
+  await pruneWikiCache();
 }
 
 async function fetchJson<T>(params: Record<string, string>): Promise<T> {
@@ -204,7 +205,7 @@ export async function searchWiki(
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
   const key = trimmed.toLowerCase();
-  const cached = getWikiSearchCache(key);
+  const cached = await getWikiSearchCache(key);
   if (
     cached &&
     Date.now() - cached.fetchedAt <
@@ -246,10 +247,11 @@ export async function searchWiki(
       }))
       .slice(0, limit);
 
-    saveWikiSearch(key, results, results.length);
-    maybePrune();
+    await saveWikiSearch(key, results, results.length);
+    await maybePrune();
     return results;
-  } catch {
+  } catch (error) {
+    logWarn("wiki", "Wikipedia search failed", { query: trimmed, error: error instanceof Error ? error.message : String(error) });
     return cached ? (cached.results as WikiSearchResult[]) : [];
   }
 }
@@ -261,7 +263,7 @@ export async function loadWikiPage(
   const normalized = normalizeWikiTitle(title);
   if (!normalized) return null;
 
-  const cached = getWikiPageCache({ title: normalized });
+  const cached = await getWikiPageCache({ title: normalized });
   if (!options.force && cached && fresh(cached.fetchedAt, CACHE_DAYS)) {
     return cached;
   }
@@ -346,10 +348,11 @@ export async function loadWikiPage(
       leadImageNonFree: leadFile?.nonFree ?? fallback?.nonFree ?? 0,
     };
 
-    saveWikiPage({ page: record, images });
-    maybePrune();
+    await saveWikiPage({ page: record, images });
+    await maybePrune();
     return getWikiPageCache({ pageId: record.pageId });
-  } catch {
+  } catch (error) {
+    logWarn("wiki", "Failed to load Wikipedia page", { title: normalized, error: error instanceof Error ? error.message : String(error) });
     return cached;
   }
 }
@@ -363,7 +366,7 @@ export async function loadWikiLeadImages(
   const result = new Map<string, WikiLeadImage>();
   if (!unique.length) return result;
 
-  const cached = getWikiLeadImages(unique);
+  const cached = await getWikiLeadImages(unique);
   const missing: string[] = [];
   for (const title of unique) {
     const image = cached.get(title);
@@ -409,8 +412,8 @@ export async function loadWikiLeadImages(
       result.set(title, { ...record, fetchedAt: Date.now() });
     }
 
-    saveWikiLeadImages(saves);
-    maybePrune();
+    await saveWikiLeadImages(saves);
+    await maybePrune();
     return result;
   } catch {
     return result;

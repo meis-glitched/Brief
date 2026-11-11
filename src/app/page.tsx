@@ -31,17 +31,17 @@ export default async function TodayPage({
 }) {
   const params = await searchParams;
   const range = resolveNewsRange(params.range, params.from, params.to);
-  const stories = getTodayStories(14, {
+  const stories = await getTodayStories(14, {
     country: params.country,
     ...range,
   });
   const lead = stories[0];
   const rest = stories.slice(1);
-  const brief = getBrief();
-  const sources = getSourceHealth();
-  const lastRun = getLastRun();
-  const stats = getStats();
-  const countries = getCountryFacets("news");
+  const brief = await getBrief();
+  const sources = await getSourceHealth();
+  const lastRun = await getLastRun();
+  const stats = await getStats();
+  const countries = await getCountryFacets("news");
   const hasFilters = Boolean(
     (params.country && params.country !== "all") ||
       (params.range && params.range !== "any") ||

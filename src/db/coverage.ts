@@ -184,18 +184,16 @@ function buildCoverage(
   };
 }
 
-export function getSourceRatings(): SourceRatingView[] {
-  const rows = sqlite
-    .prepare(
-      `SELECT so.id AS source_id, so.name AS source_name,
-              sr.bias, sr.bias_score, sr.confidence, sr.ownership,
-              sr.ownership_type, sr.country_code, sr.paywall, sr.source_type,
-              sr.provider, sr.provider_url, sr.license, sr.notes, sr.updated_at
-       FROM sources so
-       LEFT JOIN source_ratings sr ON sr.source_id = so.id
-       ORDER BY so.name`,
-    )
-    .all() as SourceRow[];
+export async function getSourceRatings(): Promise<SourceRatingView[]> {
+  const rows = await sqlite.all<SourceRow>(
+    `SELECT so.id AS source_id, so.name AS source_name,
+            sr.bias, sr.bias_score, sr.confidence, sr.ownership,
+            sr.ownership_type, sr.country_code, sr.paywall, sr.source_type,
+            sr.provider, sr.provider_url, sr.license, sr.notes, sr.updated_at
+     FROM sources so
+     LEFT JOIN source_ratings sr ON sr.source_id = so.id
+     ORDER BY so.name`,
+  );
 
   return rows.map((row) => ({
     sourceId: row.source_id,
@@ -216,41 +214,41 @@ export function getSourceRatings(): SourceRatingView[] {
   }));
 }
 
-export function getStoryCoverage(storyId: number): StoryCoverage | null {
-  const rows = sqlite
-    .prepare(
-      `SELECT a.story_id, so.id AS source_id, so.name AS source_name,
-              COALESCE(sr.bias, 'unrated') AS bias, COUNT(a.id) AS article_count
-       FROM articles a
-       JOIN sources so ON so.id = a.source_id
-       LEFT JOIN source_ratings sr ON sr.source_id = so.id
-       WHERE a.story_id = ? AND a.hidden = 0
-       GROUP BY a.story_id, so.id`,
-    )
-    .all(storyId) as CoverageRow[];
+export async function getStoryCoverage(
+  storyId: number,
+): Promise<StoryCoverage | null> {
+  const rows = await sqlite.all<CoverageRow>(
+    `SELECT a.story_id, so.id AS source_id, so.name AS source_name,
+            COALESCE(sr.bias, 'unrated') AS bias, COUNT(a.id) AS article_count
+     FROM articles a
+     JOIN sources so ON so.id = a.source_id
+     LEFT JOIN source_ratings sr ON sr.source_id = so.id
+     WHERE a.story_id = ? AND a.hidden = 0
+     GROUP BY a.story_id, so.id`,
+    storyId,
+  );
 
   if (!rows.length) return null;
   return buildCoverage(storyId, rows);
 }
 
-export function getCoverageForStories(
+export async function getCoverageForStories(
   storyIds: number[],
-): Map<number, StoryCoverage> {
+): Promise<Map<number, StoryCoverage>> {
   const result = new Map<number, StoryCoverage>();
   if (!storyIds.length) return result;
 
   const placeholders = storyIds.map(() => "?").join(", ");
-  const rows = sqlite
-    .prepare(
-      `SELECT a.story_id, so.id AS source_id, so.name AS source_name,
-              COALESCE(sr.bias, 'unrated') AS bias, COUNT(a.id) AS article_count
-       FROM articles a
-       JOIN sources so ON so.id = a.source_id
-       LEFT JOIN source_ratings sr ON sr.source_id = so.id
-       WHERE a.story_id IN (${placeholders}) AND a.hidden = 0
-       GROUP BY a.story_id, so.id`,
-    )
-    .all(...storyIds) as CoverageRow[];
+  const rows = await sqlite.all<CoverageRow>(
+    `SELECT a.story_id, so.id AS source_id, so.name AS source_name,
+            COALESCE(sr.bias, 'unrated') AS bias, COUNT(a.id) AS article_count
+     FROM articles a
+     JOIN sources so ON so.id = a.source_id
+     LEFT JOIN source_ratings sr ON sr.source_id = so.id
+     WHERE a.story_id IN (${placeholders}) AND a.hidden = 0
+     GROUP BY a.story_id, so.id`,
+    ...storyIds,
+  );
 
   const grouped = new Map<number, CoverageRow[]>();
   for (const row of rows) {
@@ -266,16 +264,16 @@ export function getCoverageForStories(
   return result;
 }
 
-export function getBlindspotStories(options: {
+export async function getBlindspotStories(options: {
   side?: "left" | "right";
   limit?: number;
   since?: number;
-} = {}): BlindspotStory[] {
-  const stories = getStories({
+} = {}): Promise<BlindspotStory[]> {
+  const stories = await getStories({
     since: options.since ?? Date.now() - 30 * 86_400_000,
     limit: options.limit ?? 250,
   });
-  const coverage = getCoverageForStories(stories.map((story) => story.id));
+  const coverage = await getCoverageForStories(stories.map((story) => story.id));
 
   return stories
     .map((story) => ({ story, coverage: coverage.get(story.id) }))
@@ -292,17 +290,15 @@ function tally(counts: BiasCounts): BiasTally {
   return { counts, shares: sharesOf(counts, total), total };
 }
 
-function getBiasCounts(where: string): BiasCounts {
-  const rows = sqlite
-    .prepare(
-      `SELECT COALESCE(sr.bias, 'unrated') AS bias, COUNT(*) AS count
-       FROM articles a
-       JOIN sources so ON so.id = a.source_id
-       LEFT JOIN source_ratings sr ON sr.source_id = so.id
-       WHERE ${where}
-       GROUP BY bias`,
-    )
-    .all() as Array<{ bias: string | null; count: number }>;
+async function getBiasCounts(where: string): Promise<BiasCounts> {
+  const rows = await sqlite.all<{ bias: string | null; count: number }>(
+    `SELECT COALESCE(sr.bias, 'unrated') AS bias, COUNT(*) AS count
+     FROM articles a
+     JOIN sources so ON so.id = a.source_id
+     LEFT JOIN source_ratings sr ON sr.source_id = so.id
+     WHERE ${where}
+     GROUP BY bias`,
+  );
 
   const counts = emptyCounts();
   for (const row of rows) {
@@ -311,10 +307,14 @@ function getBiasCounts(where: string): BiasCounts {
   return counts;
 }
 
-export function getMyBias(): MyBias {
-  const available = tally(getBiasCounts("a.hidden = 0"));
-  const read = tally(getBiasCounts("a.hidden = 0 AND a.read_at IS NOT NULL"));
-  const saved = tally(getBiasCounts("a.hidden = 0 AND a.saved_at IS NOT NULL"));
+export async function getMyBias(): Promise<MyBias> {
+  const available = tally(await getBiasCounts("a.hidden = 0"));
+  const read = tally(
+    await getBiasCounts("a.hidden = 0 AND a.read_at IS NOT NULL"),
+  );
+  const saved = tally(
+    await getBiasCounts("a.hidden = 0 AND a.saved_at IS NOT NULL"),
+  );
 
   return {
     read,

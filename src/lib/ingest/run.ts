@@ -1,6 +1,7 @@
 import { sqlite } from "@/db";
 import type { Source } from "@/db/schema";
 import { assignStories } from "@/lib/cluster";
+import { logError, logInfo, logWarn } from "@/lib/logger";
 import { inferAndTagArticles } from "@/lib/tagging";
 import { fetchSource, type FetchedArticle } from "./fetch";
 
@@ -37,28 +38,18 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-function insertArticles(articles: FetchedArticle[]): number {
+async function insertArticles(articles: FetchedArticle[]): Promise<number> {
   if (articles.length === 0) return 0;
-  const insert = sqlite.prepare(`
-    INSERT OR IGNORE INTO articles
-      (url, title, source_id, summary, author, published_at, fetched_at,
-       content_hash, hidden, image_url, image_width, image_height, feed_content)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-  `);
-  const updateMedia = sqlite.prepare(`
-    UPDATE articles
-    SET image_url = COALESCE(image_url, ?),
-        image_width = COALESCE(image_width, ?),
-        image_height = COALESCE(image_height, ?),
-        feed_content = COALESCE(feed_content, ?)
-    WHERE url = ?
-  `);
 
   let inserted = 0;
   const fresh: Array<{ id: number; title: string; summary: string | null }> = [];
-  const run = sqlite.transaction(() => {
+  await sqlite.transaction(async (tx) => {
     for (const article of articles) {
-      const result = insert.run(
+      const result = await tx.run(
+        `INSERT OR IGNORE INTO articles
+          (url, title, source_id, summary, author, published_at, fetched_at,
+           content_hash, hidden, image_url, image_width, image_height, feed_content)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
         article.url,
         article.title,
         article.sourceId,
@@ -80,7 +71,13 @@ function insertArticles(articles: FetchedArticle[]): number {
           summary: article.summary,
         });
       } else {
-        updateMedia.run(
+        await tx.run(
+          `UPDATE articles
+           SET image_url = COALESCE(image_url, ?),
+               image_width = COALESCE(image_width, ?),
+               image_height = COALESCE(image_height, ?),
+               feed_content = COALESCE(feed_content, ?)
+           WHERE url = ?`,
           article.imageUrl,
           article.imageWidth,
           article.imageHeight,
@@ -90,16 +87,13 @@ function insertArticles(articles: FetchedArticle[]): number {
       }
     }
   });
-  run();
-  inferAndTagArticles(fresh);
+  await inferAndTagArticles(fresh);
   return inserted;
 }
 
 export async function runIngest(): Promise<IngestResult> {
   const startedAt = Date.now();
-  const rows = sqlite
-    .prepare("SELECT * FROM sources WHERE enabled = 1 ORDER BY name")
-    .all() as Array<{
+  const rows = await sqlite.all<{
     id: string;
     name: string;
     homepage: string;
@@ -113,7 +107,7 @@ export async function runIngest(): Promise<IngestResult> {
     last_fetched_at: number | null;
     last_error: string | null;
     created_at: number;
-  }>;
+  }>("SELECT * FROM sources WHERE enabled = 1 ORDER BY name");
 
   const sources: Source[] = rows.map((row) => ({
     id: row.id,
@@ -131,11 +125,11 @@ export async function runIngest(): Promise<IngestResult> {
     createdAt: row.created_at,
   }));
 
-  const runRow = sqlite
-    .prepare(
-      "INSERT INTO ingest_runs (started_at, source_count, inserted, error_count) VALUES (?, ?, 0, 0)",
-    )
-    .run(startedAt, sources.length);
+  const runRow = await sqlite.run(
+    "INSERT INTO ingest_runs (started_at, source_count, inserted, error_count) VALUES (?, ?, 0, 0)",
+    startedAt,
+    sources.length,
+  );
   const runId = Number(runRow.lastInsertRowid);
 
   const errors: IngestResult["errors"] = [];
@@ -143,14 +137,15 @@ export async function runIngest(): Promise<IngestResult> {
 
   const outcomes = await mapWithConcurrency(sources, CONCURRENCY, async (source) => {
     const { articles, error } = await fetchSource(source);
-    const count = insertArticles(articles);
+    const count = await insertArticles(articles);
     const fetchedAt = Date.now();
 
-    sqlite
-      .prepare(
-        "UPDATE sources SET last_fetched_at = ?, last_error = ? WHERE id = ?",
-      )
-      .run(fetchedAt, error, source.id);
+    await sqlite.run(
+      "UPDATE sources SET last_fetched_at = ?, last_error = ? WHERE id = ?",
+      fetchedAt,
+      error,
+      source.id,
+    );
 
     if (error) {
       return { sourceId: source.id, name: source.name, error, inserted: count };
@@ -166,27 +161,30 @@ export async function runIngest(): Promise<IngestResult> {
         name: outcome.name,
         error: outcome.error,
       });
+      logWarn("ingest.run", "Source fetch failed", { sourceId: outcome.sourceId, name: outcome.name, error: outcome.error });
     }
   }
 
-  assignStories();
+  try {
+    await assignStories();
+  } catch (error) {
+    logError("ingest.run", "Story assignment failed", error);
+    throw error;
+  }
 
   const finishedAt = Date.now();
-  sqlite
-    .prepare(
-      `UPDATE ingest_runs
-       SET finished_at = ?, inserted = ?, error_count = ?, errors = ?
-       WHERE id = ?`,
-    )
-    .run(
-      finishedAt,
-      inserted,
-      errors.length,
-      errors.length ? JSON.stringify(errors) : null,
-      runId,
-    );
+  await sqlite.run(
+    `UPDATE ingest_runs
+     SET finished_at = ?, inserted = ?, error_count = ?, errors = ?
+     WHERE id = ?`,
+    finishedAt,
+    inserted,
+    errors.length,
+    errors.length ? JSON.stringify(errors) : null,
+    runId,
+  );
 
-  return {
+  const result = {
     runId,
     inserted,
     sourceCount: sources.length,
@@ -194,4 +192,6 @@ export async function runIngest(): Promise<IngestResult> {
     durationMs: finishedAt - startedAt,
     errors,
   };
+  logInfo("ingest.run", "Ingest completed", { runId, inserted, sourceCount: sources.length, errorCount: errors.length, durationMs: result.durationMs });
+  return result;
 }

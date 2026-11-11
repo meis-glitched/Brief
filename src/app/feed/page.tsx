@@ -26,13 +26,13 @@ export default async function FeedPage({
       : "all";
   const range = resolveNewsRange(params.range, params.from, params.to);
 
-  const articles = getArticles({
+  const articles = await getArticles({
     limit: 200,
     country: params.country,
     ...range,
   });
-  const sources = getEnabledSources();
-  const countries = getCountryFacets("news");
+  const sources = await getEnabledSources();
+  const countries = await getCountryFacets("news");
 
   return (
     <FeedView

@@ -3,9 +3,9 @@ import { getArticles, getEnabledSources } from "@/db/queries";
 
 export const dynamic = "force-dynamic";
 
-export default function SavedPage() {
-  const articles = getArticles({ limit: 200 });
-  const sources = getEnabledSources();
+export default async function SavedPage() {
+  const articles = await getArticles({ limit: 200 });
+  const sources = await getEnabledSources();
 
   return (
     <FeedView

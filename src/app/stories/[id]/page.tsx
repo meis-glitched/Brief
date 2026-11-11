@@ -20,11 +20,11 @@ export default async function StoryPage({
   const storyId = Number(id);
   if (!Number.isInteger(storyId)) notFound();
 
-  const data = getStory(storyId);
+  const data = await getStory(storyId);
   if (!data) notFound();
 
   const { story, articles } = data;
-  const coverage = getStoryCoverage(storyId);
+  const coverage = await getStoryCoverage(storyId);
   const sourceBias = new Map(
     coverage?.sources.map((source) => [source.sourceId, source.bias]) ?? [],
   );

@@ -30,8 +30,8 @@ function Wordmark({ small = false }: { small?: boolean }) {
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const stats = getStats();
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const stats = await getStats();
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -68,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SignalIcon className="ml-auto size-3.5" />
           </div>
           <p className="mt-2 px-3 font-mono text-[10px] leading-relaxed text-muted/70">
-            {stats.sources} sources · SQLite
+            {stats.sources} sources · libSQL
             <br />
             {stats.articles} articles on file
           </p>

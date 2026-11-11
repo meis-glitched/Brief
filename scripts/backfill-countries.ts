@@ -1,6 +1,13 @@
 import { backfillArticleCountries } from "../src/lib/tagging";
 
-const result = backfillArticleCountries();
-console.log(
-  `Tagged ${result.tags} country links across ${result.articles} previously untagged articles.`,
-);
+async function main() {
+  const result = await backfillArticleCountries();
+  console.log(
+    `Tagged ${result.tags} country links across ${result.articles} previously untagged articles.`,
+  );
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

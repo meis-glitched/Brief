@@ -1,4 +1,5 @@
 import { GoogleDecoder } from "google-news-url-decoder";
+import { logWarn } from "./logger";
 const decoder = new GoogleDecoder();
 const cache = new Map<string, string | null>();
 
@@ -20,7 +21,8 @@ export async function resolveGoogleNewsUrl(value: string): Promise<string | null
     const resolved = result.status ? result.decoded_url : null;
     if (resolved) cache.set(value, resolved);
     return resolved;
-  } catch {
+  } catch (error) {
+    logWarn("google-news", "Failed to resolve Google News URL", { url: value, error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }

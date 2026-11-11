@@ -5,6 +5,7 @@ import { assignStories } from "../src/lib/cluster";
 import { inferAndTagArticles } from "../src/lib/tagging";
 import { cleanTitle, hash, normalizeUrl } from "../src/lib/utils";
 
+async function main() {
 const legacyPath =
   process.env.LEGACY_DB ?? "/home/glitcher/news-aggregator/news.db";
 
@@ -32,23 +33,14 @@ const rows = legacy
   first_seen: number;
 }>;
 
-const known = new Set(
-  (
-    sqlite.prepare("SELECT id FROM sources").all() as Array<{ id: string }>
-  ).map((row) => row.id),
-);
-
-const insert = sqlite.prepare(`
-  INSERT OR IGNORE INTO articles
-    (url, title, source_id, summary, author, published_at, fetched_at, content_hash, hidden)
-  VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, 0)
-`);
+const knownRows = await sqlite.all<{ id: string }>("SELECT id FROM sources");
+const known = new Set(knownRows.map((row) => row.id));
 
 let inserted = 0;
 let skipped = 0;
 const fresh: Array<{ id: number; title: string; summary: string | null }> = [];
 
-const run = sqlite.transaction(() => {
+await sqlite.transaction(async (tx) => {
   for (const row of rows) {
     if (!known.has(row.source_id)) {
       skipped += 1;
@@ -65,7 +57,10 @@ const run = sqlite.transaction(() => {
       : row.first_seen
         ? row.first_seen * 1000
         : Date.now();
-    const result = insert.run(
+    const result = await tx.run(
+      `INSERT OR IGNORE INTO articles
+        (url, title, source_id, summary, author, published_at, fetched_at, content_hash, hidden)
+      VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, 0)`,
       url,
       title,
       row.source_id,
@@ -80,12 +75,18 @@ const run = sqlite.transaction(() => {
   }
 });
 
-run();
-inferAndTagArticles(fresh);
+await inferAndTagArticles(fresh);
 legacy.close();
 
-const clustered = assignStories(3650);
+const clustered = await assignStories(3650);
 console.log(
   `Imported ${inserted} articles from ${legacyPath} (${skipped} skipped). ` +
     `Clustered ${clustered.assigned} into existing stories, created ${clustered.created}.`,
 );
+
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

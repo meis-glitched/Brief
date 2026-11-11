@@ -34,7 +34,7 @@ export async function generateMetadata({
   const { id } = await params;
   const articleId = Number(id);
   if (!Number.isInteger(articleId)) return { title: "Article" };
-  const article = getReaderArticle(articleId);
+  const article = await getReaderArticle(articleId);
   if (!article) return { title: "Article" };
   return {
     title: article.title,
@@ -53,7 +53,7 @@ export default async function ArticlePage({
   const articleId = Number(id);
   if (!Number.isInteger(articleId) || articleId < 1) notFound();
 
-  const article = getReaderArticle(articleId);
+  const article = await getReaderArticle(articleId);
   if (!article) notFound();
 
   const { refresh } = await searchParams;

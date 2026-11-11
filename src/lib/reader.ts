@@ -1,4 +1,5 @@
 import "server-only";
+import { logWarn } from "./logger";
 import { Readability } from "@mozilla/readability";
 import { load, type CheerioAPI } from "cheerio";
 import type { Element } from "domhandler";
@@ -283,6 +284,11 @@ export async function buildReader(article: ReaderArticle): Promise<ReaderPayload
       leadImageUrl: meta?.url ?? article.imageUrl,
     };
   } catch (error) {
+    logWarn("reader", "Reader build failed, falling back to summary", {
+      articleId: article.id,
+      url,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return summaryPayload(
       article,
       error instanceof Error ? error.message : "Could not load the article.",
@@ -292,13 +298,17 @@ export async function buildReader(article: ReaderArticle): Promise<ReaderPayload
 
 function payloadFromCache(
   article: ReaderArticle,
-  cached: NonNullable<ReturnType<typeof getArticleContent>>,
+  cached: NonNullable<Awaited<ReturnType<typeof getArticleContent>>>,
 ): ReaderPayload {
   let blocks: ReaderBlock[] = [];
   try {
     const parsed = JSON.parse(cached.blocks);
     if (Array.isArray(parsed)) blocks = parsed as ReaderBlock[];
-  } catch {
+  } catch (error) {
+    logWarn("reader", "Failed to parse cached reader blocks", {
+      articleId: article.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     blocks = [];
   }
   return {
@@ -319,7 +329,7 @@ export async function getReader(
   article: ReaderArticle,
   options: { force?: boolean } = {},
 ): Promise<ReaderPayload> {
-  const cached = getArticleContent(article.id);
+  const cached = await getArticleContent(article.id);
   const fresh =
     cached &&
     Date.now() - cached.fetchedAt < Math.max(1, CACHE_DAYS) * 86_400_000;
@@ -329,7 +339,7 @@ export async function getReader(
   }
 
   const payload = await buildReader(article);
-  saveArticleContent({
+  await saveArticleContent({
     articleId: article.id,
     blocks: payload.blocks,
     text: payload.text,
@@ -338,7 +348,7 @@ export async function getReader(
     error: payload.error,
   });
   const resolved = article.resolvedUrl ?? (await resolveGoogleNewsUrl(article.url));
-  updateArticleMedia({
+  await updateArticleMedia({
     articleId: article.id,
     imageUrl: payload.leadImageUrl,
     resolvedUrl: resolved,

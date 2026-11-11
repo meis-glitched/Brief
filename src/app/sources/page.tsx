@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic";
 
 type RunError = { sourceId: string; name: string; error: string };
 
-export default function SourcesPage() {
-  const sources = getSourceHealth();
-  const lastRun = getLastRun();
-  const stats = getStats();
+export default async function SourcesPage() {
+  const sources = await getSourceHealth();
+  const lastRun = await getLastRun();
+  const stats = await getStats();
   const healthy = sources.filter((source) => !source.lastError).length;
   const rated = sources.filter((source) => source.bias !== "unrated").length;
 
@@ -19,7 +19,7 @@ export default function SourcesPage() {
     try {
       errors = JSON.parse(lastRun.errors) as RunError[];
     } catch {
-      errors = [];
+      errors = [{ sourceId: "unknown", name: "Ingest", error: "Failed to parse stored ingest errors." }];
     }
   }
 

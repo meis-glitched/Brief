@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import sharp from "sharp";
 import { imageCacheDir } from "@/lib/storage";
 import { assertPublicUrl } from "@/lib/url-safety";
+import { logWarn } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -151,6 +152,7 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    logWarn("api.image", "Image proxy failed", { url: url.toString(), error: error instanceof Error ? error.message : String(error) });
     return new Response(error instanceof Error ? error.message : "Image failed", {
       status: 404,
       headers: { "Cache-Control": "public, max-age=300" },

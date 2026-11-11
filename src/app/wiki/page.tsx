@@ -26,7 +26,8 @@ export default async function WikiSearchPage({
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
           Search Wikipedia without leaving the desk. Pages and lead images are
-          cached locally; licenses stay attached to every file.
+          cached locally when available; if Wikipedia is slow or unreachable,
+          cached results are used and licenses stay attached to every file.
         </p>
 
         <form action="/wiki" method="get" className="mt-5 flex max-w-2xl gap-2">

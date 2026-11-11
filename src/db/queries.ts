@@ -146,7 +146,7 @@ const ARTICLE_SELECT = `
 
 export type ArticleFilter = "all" | "unread" | "saved";
 
-export function getArticles(options: {
+export async function getArticles(options: {
   filter?: ArticleFilter;
   sourceId?: string;
   query?: string;
@@ -154,7 +154,7 @@ export function getArticles(options: {
   from?: number;
   to?: number;
   limit?: number;
-} = {}): ArticleWithSource[] {
+} = {}): Promise<ArticleWithSource[]> {
   const where = ["a.hidden = 0"];
   const params: Array<string | number> = [];
 
@@ -186,22 +186,22 @@ export function getArticles(options: {
 
   params.push(options.limit ?? 200);
 
-  const rows = sqlite
-    .prepare(
-      `${ARTICLE_SELECT}
-       WHERE ${where.join(" AND ")}
-       ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
-       LIMIT ?`,
-    )
-    .all(...params) as ArticleRecord[];
+  const rows = await sqlite.all<ArticleRecord>(
+    `${ARTICLE_SELECT}
+     WHERE ${where.join(" AND ")}
+     ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+     LIMIT ?`,
+    ...params,
+  );
 
   return rows.map(mapArticle);
 }
 
-export function getArticle(id: number): ArticleWithSource | null {
-  const row = sqlite
-    .prepare(`${ARTICLE_SELECT} WHERE a.id = ?`)
-    .get(id) as ArticleRecord | undefined;
+export async function getArticle(id: number): Promise<ArticleWithSource | null> {
+  const row = await sqlite.get<ArticleRecord>(
+    `${ARTICLE_SELECT} WHERE a.id = ?`,
+    id,
+  );
   return row ? mapArticle(row) : null;
 }
 
@@ -215,25 +215,26 @@ type ReaderArticleRecord = ArticleRecord & {
   resolved_url: string | null;
 };
 
-export function getReaderArticle(id: number): ReaderArticleWithSource | null {
-  const row = sqlite
-    .prepare(
-      `SELECT a.id, a.url, a.title, a.source_id, so.name AS source_name,
-              a.summary, a.author, a.published_at, a.fetched_at,
-              a.image_url, a.image_width, a.image_height, a.story_id,
-              s.title AS story_title, a.read_at, a.saved_at,
-              a.feed_content, a.resolved_url,
-              (
-                SELECT group_concat(ac.country_name, ' · ')
-                FROM article_countries ac
-                WHERE ac.article_id = a.id
-              ) AS country_names
-       FROM articles a
-       JOIN sources so ON so.id = a.source_id
-       LEFT JOIN stories s ON s.id = a.story_id
-       WHERE a.id = ? AND a.hidden = 0`,
-    )
-    .get(id) as ReaderArticleRecord | undefined;
+export async function getReaderArticle(
+  id: number,
+): Promise<ReaderArticleWithSource | null> {
+  const row = await sqlite.get<ReaderArticleRecord>(
+    `SELECT a.id, a.url, a.title, a.source_id, so.name AS source_name,
+            a.summary, a.author, a.published_at, a.fetched_at,
+            a.image_url, a.image_width, a.image_height, a.story_id,
+            s.title AS story_title, a.read_at, a.saved_at,
+            a.feed_content, a.resolved_url,
+            (
+              SELECT group_concat(ac.country_name, ' · ')
+              FROM article_countries ac
+              WHERE ac.article_id = a.id
+            ) AS country_names
+     FROM articles a
+     JOIN sources so ON so.id = a.source_id
+     LEFT JOIN stories s ON s.id = a.story_id
+     WHERE a.id = ? AND a.hidden = 0`,
+    id,
+  );
   if (!row) return null;
   return {
     ...mapArticle(row),
@@ -242,13 +243,13 @@ export function getReaderArticle(id: number): ReaderArticleWithSource | null {
   };
 }
 
-export function getStories(options: {
+export async function getStories(options: {
   limit?: number;
   since?: number;
   country?: string;
   from?: number;
   to?: number;
-} = {}): StoryWithSources[] {
+} = {}): Promise<StoryWithSources[]> {
   const since = options.since ?? 0;
   const where = ["s.last_seen >= ?", "s.article_count > 0"];
   const params: Array<string | number> = [since];
@@ -284,49 +285,48 @@ export function getStories(options: {
 
   params.push(options.limit ?? 40);
 
-  const rows = sqlite
-    .prepare(
-      `SELECT s.id, s.title, s.summary, s.first_seen, s.last_seen,
-              s.article_count, s.source_count, s.score,
-              (
-                SELECT a.image_url FROM articles a
-                WHERE a.story_id = s.id AND a.image_url IS NOT NULL
-                ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
-                LIMIT 1
-              ) AS image_url,
-              (
-                SELECT group_concat(name, ' · ') FROM (
-                  SELECT DISTINCT so.name AS name
-                  FROM articles a
-                  JOIN sources so ON so.id = a.source_id
-                  WHERE a.story_id = s.id
-                  ORDER BY so.name
-                )
-              ) AS source_names,
-              (
-                SELECT group_concat(name, ' · ') FROM (
-                  SELECT DISTINCT ac.country_name AS name
-                  FROM articles a
-                  JOIN article_countries ac ON ac.article_id = a.id
-                  WHERE a.story_id = s.id
-                  ORDER BY ac.country_name
-                )
-              ) AS country_names
-       FROM stories s
-       WHERE ${where.join(" AND ")}
-       ORDER BY s.score DESC, s.last_seen DESC
-       LIMIT ?`,
-    )
-    .all(...params) as StoryRecord[];
+  const rows = await sqlite.all<StoryRecord>(
+    `SELECT s.id, s.title, s.summary, s.first_seen, s.last_seen,
+            s.article_count, s.source_count, s.score,
+            (
+              SELECT a.image_url FROM articles a
+              WHERE a.story_id = s.id AND a.image_url IS NOT NULL
+              ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+              LIMIT 1
+            ) AS image_url,
+            (
+              SELECT group_concat(name, ' · ') FROM (
+                SELECT DISTINCT so.name AS name
+                FROM articles a
+                JOIN sources so ON so.id = a.source_id
+                WHERE a.story_id = s.id
+                ORDER BY so.name
+              )
+            ) AS source_names,
+            (
+              SELECT group_concat(name, ' · ') FROM (
+                SELECT DISTINCT ac.country_name AS name
+                FROM articles a
+                JOIN article_countries ac ON ac.article_id = a.id
+                WHERE a.story_id = s.id
+                ORDER BY ac.country_name
+              )
+            ) AS country_names
+     FROM stories s
+     WHERE ${where.join(" AND ")}
+     ORDER BY s.score DESC, s.last_seen DESC
+     LIMIT ?`,
+    ...params,
+  );
   return rows.map(mapStory);
 }
 
-export function getTodayStories(
+export async function getTodayStories(
   limit = 18,
   options: { country?: string; from?: number; to?: number } = {},
-): StoryWithSources[] {
+): Promise<StoryWithSources[]> {
   const since = startOfDay() - 12 * 3_600_000;
-  const stories = getStories({ since, limit, ...options });
+  const stories = await getStories({ since, limit, ...options });
   if (stories.length) return stories;
   if (options.country || options.from !== undefined || options.to !== undefined) {
     return [];
@@ -334,72 +334,55 @@ export function getTodayStories(
   return getStories({ limit });
 }
 
-export function getStory(id: number): {
+export async function getStory(id: number): Promise<{
   story: StoryWithSources;
   articles: ArticleWithSource[];
-} | null {
-  const row = sqlite
-    .prepare(
-      `SELECT s.id, s.title, s.summary, s.first_seen, s.last_seen,
-              s.article_count, s.source_count, s.score,
-              (
-                SELECT a.image_url FROM articles a
-                WHERE a.story_id = s.id AND a.image_url IS NOT NULL
-                ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
-                LIMIT 1
-              ) AS image_url,
-              (
-                SELECT group_concat(name, ' · ') FROM (
-                  SELECT DISTINCT so.name AS name
-                  FROM articles a
-                  JOIN sources so ON so.id = a.source_id
-                  WHERE a.story_id = s.id
-                  ORDER BY so.name
-                )
-              ) AS source_names,
-              (
-                SELECT group_concat(name, ' · ') FROM (
-                  SELECT DISTINCT ac.country_name AS name
-                  FROM articles a
-                  JOIN article_countries ac ON ac.article_id = a.id
-                  WHERE a.story_id = s.id
-                  ORDER BY ac.country_name
-                )
-              ) AS country_names
-       FROM stories s WHERE s.id = ?`,
-    )
-    .get(id) as StoryRecord | undefined;
+} | null> {
+  const row = await sqlite.get<StoryRecord>(
+    `SELECT s.id, s.title, s.summary, s.first_seen, s.last_seen,
+            s.article_count, s.source_count, s.score,
+            (
+              SELECT a.image_url FROM articles a
+              WHERE a.story_id = s.id AND a.image_url IS NOT NULL
+              ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+              LIMIT 1
+            ) AS image_url,
+            (
+              SELECT group_concat(name, ' · ') FROM (
+                SELECT DISTINCT so.name AS name
+                FROM articles a
+                JOIN sources so ON so.id = a.source_id
+                WHERE a.story_id = s.id
+                ORDER BY so.name
+              )
+            ) AS source_names,
+            (
+              SELECT group_concat(name, ' · ') FROM (
+                SELECT DISTINCT ac.country_name AS name
+                FROM articles a
+                JOIN article_countries ac ON ac.article_id = a.id
+                WHERE a.story_id = s.id
+                ORDER BY ac.country_name
+              )
+            ) AS country_names
+     FROM stories s WHERE s.id = ?`,
+    id,
+  );
 
   if (!row) return null;
 
-  const articles = sqlite
-    .prepare(
-      `${ARTICLE_SELECT}
-       WHERE a.story_id = ?
-       ORDER BY COALESCE(a.published_at, a.fetched_at) DESC`,
-    )
-    .all(id) as ArticleRecord[];
+  const articles = await sqlite.all<ArticleRecord>(
+    `${ARTICLE_SELECT}
+     WHERE a.story_id = ?
+     ORDER BY COALESCE(a.published_at, a.fetched_at) DESC`,
+    id,
+  );
 
   return { story: mapStory(row), articles: articles.map(mapArticle) };
 }
 
-export function getSourceHealth(): SourceHealth[] {
-  const rows = sqlite
-    .prepare(
-      `SELECT s.id, s.name, s.homepage, s.feed_url, s.html_url, s.enabled,
-              s.last_fetched_at, s.last_error,
-              COUNT(a.id) AS article_count,
-              SUM(CASE WHEN a.read_at IS NULL THEN 1 ELSE 0 END) AS unread_count,
-              COALESCE(sr.bias, 'unrated') AS bias, sr.bias_score,
-              sr.confidence, sr.ownership, sr.country_code, sr.source_type,
-              sr.paywall
-       FROM sources s
-       LEFT JOIN articles a ON a.source_id = s.id
-       LEFT JOIN source_ratings sr ON sr.source_id = s.id
-       GROUP BY s.id
-       ORDER BY s.name`,
-    )
-    .all() as Array<{
+export async function getSourceHealth(): Promise<SourceHealth[]> {
+  const rows = await sqlite.all<{
     id: string;
     name: string;
     homepage: string;
@@ -417,7 +400,20 @@ export function getSourceHealth(): SourceHealth[] {
     country_code: string | null;
     source_type: string | null;
     paywall: number;
-  }>;
+  }>(
+    `SELECT s.id, s.name, s.homepage, s.feed_url, s.html_url, s.enabled,
+            s.last_fetched_at, s.last_error,
+            COUNT(a.id) AS article_count,
+            SUM(CASE WHEN a.read_at IS NULL THEN 1 ELSE 0 END) AS unread_count,
+            COALESCE(sr.bias, 'unrated') AS bias, sr.bias_score,
+            sr.confidence, sr.ownership, sr.country_code, sr.source_type,
+            sr.paywall
+     FROM sources s
+     LEFT JOIN articles a ON a.source_id = s.id
+     LEFT JOIN source_ratings sr ON sr.source_id = s.id
+     GROUP BY s.id
+     ORDER BY s.name`,
+  );
 
   return rows.map((row) => ({
     id: row.id,
@@ -440,24 +436,24 @@ export function getSourceHealth(): SourceHealth[] {
   }));
 }
 
-export function getEnabledSources(): Array<{
-  id: string;
-  name: string;
-  articleCount: number;
-}> {
-  return sqlite
-    .prepare(
-      `SELECT s.id, s.name, COUNT(a.id) AS articleCount
-       FROM sources s
-       LEFT JOIN articles a ON a.source_id = s.id
-       WHERE s.enabled = 1
-       GROUP BY s.id
-       ORDER BY s.name`,
-    )
-    .all() as Array<{ id: string; name: string; articleCount: number }>;
+export async function getEnabledSources(): Promise<
+  Array<{
+    id: string;
+    name: string;
+    articleCount: number;
+  }>
+> {
+  return sqlite.all<{ id: string; name: string; articleCount: number }>(
+    `SELECT s.id, s.name, COUNT(a.id) AS articleCount
+     FROM sources s
+     LEFT JOIN articles a ON a.source_id = s.id
+     WHERE s.enabled = 1
+     GROUP BY s.id
+     ORDER BY s.name`,
+  );
 }
 
-export function getStats(): {
+export async function getStats(): Promise<{
   articles: number;
   unread: number;
   saved: number;
@@ -465,19 +461,8 @@ export function getStats(): {
   multiSource: number;
   sources: number;
   today: number;
-} {
-  const row = sqlite
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM articles WHERE hidden = 0) AS articles,
-         (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND read_at IS NULL) AS unread,
-         (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND saved_at IS NOT NULL) AS saved,
-         (SELECT COUNT(*) FROM stories WHERE article_count > 0) AS stories,
-         (SELECT COUNT(*) FROM stories WHERE source_count > 1) AS multiSource,
-         (SELECT COUNT(*) FROM sources WHERE enabled = 1) AS sources,
-         (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND COALESCE(published_at, fetched_at) >= ?) AS today`,
-    )
-    .get(startOfDay()) as {
+}> {
+  const row = await sqlite.get<{
     articles: number;
     unread: number;
     saved: number;
@@ -485,24 +470,30 @@ export function getStats(): {
     multiSource: number;
     sources: number;
     today: number;
-  };
-  return row;
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM articles WHERE hidden = 0) AS articles,
+       (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND read_at IS NULL) AS unread,
+       (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND saved_at IS NOT NULL) AS saved,
+       (SELECT COUNT(*) FROM stories WHERE article_count > 0) AS stories,
+       (SELECT COUNT(*) FROM stories WHERE source_count > 1) AS multiSource,
+       (SELECT COUNT(*) FROM sources WHERE enabled = 1) AS sources,
+       (SELECT COUNT(*) FROM articles WHERE hidden = 0 AND COALESCE(published_at, fetched_at) >= ?) AS today`,
+    startOfDay(),
+  );
+  return row!;
 }
 
-export function getLastRun(): IngestRun | null {
-  const row = sqlite
-    .prepare("SELECT * FROM ingest_runs ORDER BY id DESC LIMIT 1")
-    .get() as
-    | {
-        id: number;
-        started_at: number;
-        finished_at: number | null;
-        inserted: number;
-        source_count: number;
-        error_count: number;
-        errors: string | null;
-      }
-    | undefined;
+export async function getLastRun(): Promise<IngestRun | null> {
+  const row = await sqlite.get<{
+    id: number;
+    started_at: number;
+    finished_at: number | null;
+    inserted: number;
+    source_count: number;
+    error_count: number;
+    errors: string | null;
+  }>("SELECT * FROM ingest_runs ORDER BY id DESC LIMIT 1");
   if (!row) return null;
   return {
     id: row.id,
@@ -515,16 +506,16 @@ export function getLastRun(): IngestRun | null {
   };
 }
 
-export function getBrief(date = dayKey()): {
+export async function getBrief(date = dayKey()): Promise<{
   content: string;
   model: string | null;
   createdAt: number;
-} | null {
-  const row = sqlite
-    .prepare("SELECT content, model, created_at FROM briefs WHERE date = ?")
-    .get(date) as
-    | { content: string; model: string | null; created_at: number }
-    | undefined;
+} | null> {
+  const row = await sqlite.get<{
+    content: string;
+    model: string | null;
+    created_at: number;
+  }>("SELECT content, model, created_at FROM briefs WHERE date = ?", date);
   if (!row) return null;
   return { content: row.content, model: row.model, createdAt: row.created_at };
 }
@@ -547,25 +538,28 @@ function ftsQuery(value: string): string {
   return tokens.map((token) => `"${token}"*`).join(" OR ");
 }
 
-export function search(value: string, limit = 8): SearchResult[] {
+export async function search(
+  value: string,
+  limit = 8,
+): Promise<SearchResult[]> {
   const query = value.trim();
   if (!query) return [];
   const results: SearchResult[] = [];
 
-  const storyRows = sqlite
-    .prepare(
-      `SELECT id, title, source_count, article_count
-       FROM stories
-       WHERE title LIKE ? AND article_count > 0
-       ORDER BY score DESC, last_seen DESC
-       LIMIT ?`,
-    )
-    .all(`%${query}%`, Math.ceil(limit / 2)) as Array<{
+  const storyRows = await sqlite.all<{
     id: number;
     title: string;
     source_count: number;
     article_count: number;
-  }>;
+  }>(
+    `SELECT id, title, source_count, article_count
+     FROM stories
+     WHERE title LIKE ? AND article_count > 0
+     ORDER BY score DESC, last_seen DESC
+     LIMIT ?`,
+    `%${query}%`,
+    Math.ceil(limit / 2),
+  );
 
   for (const story of storyRows) {
     results.push({
@@ -580,18 +574,7 @@ export function search(value: string, limit = 8): SearchResult[] {
   const fts = ftsQuery(query);
   if (fts) {
     try {
-      const articleRows = sqlite
-        .prepare(
-          `SELECT a.id, a.title, a.url, a.story_id, so.name AS source_name,
-                  a.published_at, a.fetched_at
-           FROM articles_fts f
-           JOIN articles a ON a.id = f.rowid
-           JOIN sources so ON so.id = a.source_id
-           WHERE articles_fts MATCH ?
-           ORDER BY rank
-           LIMIT ?`,
-        )
-        .all(fts, limit) as Array<{
+      const articleRows = await sqlite.all<{
         id: number;
         title: string;
         url: string;
@@ -599,7 +582,18 @@ export function search(value: string, limit = 8): SearchResult[] {
         source_name: string;
         published_at: number | null;
         fetched_at: number;
-      }>;
+      }>(
+        `SELECT a.id, a.title, a.url, a.story_id, so.name AS source_name,
+                a.published_at, a.fetched_at
+         FROM articles_fts f
+         JOIN articles a ON a.id = f.rowid
+         JOIN sources so ON so.id = a.source_id
+         WHERE articles_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`,
+        fts,
+        limit,
+      );
 
       for (const article of articleRows) {
         results.push({
@@ -611,21 +605,21 @@ export function search(value: string, limit = 8): SearchResult[] {
         });
       }
     } catch {
-      const articleRows = sqlite
-        .prepare(
-          `SELECT a.id, a.title, a.url, a.story_id, so.name AS source_name
-           FROM articles a JOIN sources so ON so.id = a.source_id
-           WHERE a.title LIKE ?
-           ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
-           LIMIT ?`,
-        )
-        .all(`%${query}%`, limit) as Array<{
+      const articleRows = await sqlite.all<{
         id: number;
         title: string;
         url: string;
         story_id: number | null;
         source_name: string;
-      }>;
+      }>(
+        `SELECT a.id, a.title, a.url, a.story_id, so.name AS source_name
+         FROM articles a JOIN sources so ON so.id = a.source_id
+         WHERE a.title LIKE ?
+         ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+         LIMIT ?`,
+        `%${query}%`,
+        limit,
+      );
       for (const article of articleRows) {
         results.push({
           type: "article",
@@ -641,12 +635,12 @@ export function search(value: string, limit = 8): SearchResult[] {
   return results.slice(0, limit);
 }
 
-export function getWeeklyStories(
+export async function getWeeklyStories(
   limit = 120,
   options: { country?: string; from?: number; to?: number } = {},
-): StoryWithSources[] {
+): Promise<StoryWithSources[]> {
   const since = options.from ?? Date.now() - 7 * 86_400_000;
-  const recent = getStories({ since, limit, ...options });
+  const recent = await getStories({ since, limit, ...options });
   if (recent.length) return recent;
   if (options.country || options.to !== undefined) return [];
   return getStories({ limit, ...options });
@@ -658,30 +652,28 @@ export type CountryFacet = {
   count: number;
 };
 
-export function getCountryFacets(kind: "news" | "history"): CountryFacet[] {
+export async function getCountryFacets(
+  kind: "news" | "history",
+): Promise<CountryFacet[]> {
   if (kind === "news") {
-    return sqlite
-      .prepare(
-        `SELECT ac.country_code AS code, ac.country_name AS name,
-                COUNT(DISTINCT ac.article_id) AS count
-         FROM article_countries ac
-         JOIN articles a ON a.id = ac.article_id
-         WHERE a.hidden = 0
-         GROUP BY ac.country_code
-         ORDER BY count DESC, name`,
-      )
-      .all() as CountryFacet[];
+    return sqlite.all<CountryFacet>(
+      `SELECT ac.country_code AS code, ac.country_name AS name,
+              COUNT(DISTINCT ac.article_id) AS count
+       FROM article_countries ac
+       JOIN articles a ON a.id = ac.article_id
+       WHERE a.hidden = 0
+       GROUP BY ac.country_code
+       ORDER BY count DESC, name`,
+    );
   }
 
-  return sqlite
-    .prepare(
-      `SELECT ec.country_code AS code, ec.country_name AS name,
-              COUNT(DISTINCT ec.event_id) AS count
-       FROM event_countries ec
-       GROUP BY ec.country_code
-       ORDER BY count DESC, name`,
-    )
-    .all() as CountryFacet[];
+  return sqlite.all<CountryFacet>(
+    `SELECT ec.country_code AS code, ec.country_name AS name,
+            COUNT(DISTINCT ec.event_id) AS count
+     FROM event_countries ec
+     GROUP BY ec.country_code
+     ORDER BY count DESC, name`,
+  );
 }
 
 export type HistoricalEventWithCountries = {
@@ -716,7 +708,7 @@ type HistoricalEventRecord = {
   country_names: string | null;
 };
 
-export function getHistoricalEvents(options: {
+export async function getHistoricalEvents(options: {
   country?: string;
   yearFrom?: number;
   yearTo?: number;
@@ -724,7 +716,7 @@ export function getHistoricalEvents(options: {
   order?: "asc" | "desc";
   limit?: number;
   offset?: number;
-} = {}): HistoricalEventWithCountries[] {
+} = {}): Promise<HistoricalEventWithCountries[]> {
   const where = ["1 = 1"];
   const params: Array<string | number> = [];
 
@@ -751,24 +743,23 @@ export function getHistoricalEvents(options: {
 
   params.push(options.limit ?? 60, options.offset ?? 0);
 
-  const rows = sqlite
-    .prepare(
-      `SELECT e.id, e.external_id, e.title, e.description, e.year, e.month,
-              e.day, e.date_text, e.sort_key, e.kind, e.source, e.source_url,
-              (
-                SELECT group_concat(name, ' · ') FROM (
-                  SELECT DISTINCT ec.country_name AS name
-                  FROM event_countries ec
-                  WHERE ec.event_id = e.id
-                  ORDER BY ec.country_name
-                )
-              ) AS country_names
-       FROM historical_events e
-       WHERE ${where.join(" AND ")}
-       ORDER BY e.sort_key ${options.order === "asc" ? "ASC" : "DESC"}
-       LIMIT ? OFFSET ?`,
-    )
-    .all(...params) as HistoricalEventRecord[];
+  const rows = await sqlite.all<HistoricalEventRecord>(
+    `SELECT e.id, e.external_id, e.title, e.description, e.year, e.month,
+            e.day, e.date_text, e.sort_key, e.kind, e.source, e.source_url,
+            (
+              SELECT group_concat(name, ' · ') FROM (
+                SELECT DISTINCT ec.country_name AS name
+                FROM event_countries ec
+                WHERE ec.event_id = e.id
+                ORDER BY ec.country_name
+              )
+            ) AS country_names
+     FROM historical_events e
+     WHERE ${where.join(" AND ")}
+     ORDER BY e.sort_key ${options.order === "asc" ? "ASC" : "DESC"}
+     LIMIT ? OFFSET ?`,
+    ...params,
+  );
 
   return rows.map((row) => ({
     id: row.id,
@@ -787,36 +778,34 @@ export function getHistoricalEvents(options: {
   }));
 }
 
-export function getHistoryStats(): {
+export async function getHistoryStats(): Promise<{
   events: number;
   countries: number;
   earliest: number | null;
   latest: number | null;
-} {
-  const row = sqlite
-    .prepare(
-      `SELECT COUNT(DISTINCT e.id) AS events,
-              COUNT(DISTINCT ec.country_code) AS countries,
-              MIN(e.year) AS earliest,
-              MAX(e.year) AS latest
-       FROM historical_events e
-       LEFT JOIN event_countries ec ON ec.event_id = e.id`,
-    )
-    .get() as {
+}> {
+  const row = await sqlite.get<{
     events: number;
     countries: number;
     earliest: number | null;
     latest: number | null;
-  };
-  return row;
+  }>(
+    `SELECT COUNT(DISTINCT e.id) AS events,
+            COUNT(DISTINCT ec.country_code) AS countries,
+            MIN(e.year) AS earliest,
+            MAX(e.year) AS latest
+     FROM historical_events e
+     LEFT JOIN event_countries ec ON ec.event_id = e.id`,
+  );
+  return row!;
 }
 
-export function getHistoryCount(options: {
+export async function getHistoryCount(options: {
   country?: string;
   yearFrom?: number;
   yearTo?: number;
   kind?: string;
-} = {}): number {
+} = {}): Promise<number> {
   const where = ["1 = 1"];
   const params: Array<string | number> = [];
 
@@ -841,10 +830,9 @@ export function getHistoryCount(options: {
   where.push("e.sort_key <= ?");
   params.push(todaySortKey());
 
-  const row = sqlite
-    .prepare(
-      `SELECT COUNT(*) AS count FROM historical_events e WHERE ${where.join(" AND ")}`,
-    )
-    .get(...params) as { count: number };
-  return row.count;
+  const row = await sqlite.get<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM historical_events e WHERE ${where.join(" AND ")}`,
+    ...params,
+  );
+  return row?.count ?? 0;
 }

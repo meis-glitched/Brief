@@ -43,14 +43,14 @@ export default async function HistoryPage({
     ...years,
   };
 
-  const events = getHistoricalEvents({
+  const events = await getHistoricalEvents({
     ...filters,
     limit: PAGE_SIZE,
     offset,
   });
-  const total = getHistoryCount(filters);
-  const stats = getHistoryStats();
-  const countries = getCountryFacets("history");
+  const total = await getHistoryCount(filters);
+  const stats = await getHistoryStats();
+  const countries = await getCountryFacets("history");
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const wikiTitles = events
@@ -215,8 +215,12 @@ export default async function HistoryPage({
       ) : (
         <div className="mt-8">
           <EmptyState
-            title="No records match."
-            body="Try a wider era, another country, or clear the filters."
+            title={total === 0 && stats.events === 0 ? "History is not imported yet." : "No records match."}
+            body={
+              total === 0 && stats.events === 0
+                ? "Seed the timeline with `npm run import:history -- --source onthisday` and optionally add Wikidata ranges. History pages need cached Wikipedia data for thumbnails."
+                : "Try a wider era, another country, or clear the filters."
+            }
           />
         </div>
       )}

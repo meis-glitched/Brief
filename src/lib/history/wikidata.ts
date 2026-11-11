@@ -199,7 +199,7 @@ export async function importWikidata(options: {
     const end = Math.min(year + step - 1, options.toYear);
     const bindings = await fetchRange(year, end);
     const events = groupBindings(bindings);
-    const result = upsertHistoricalEvents(events);
+    const result = await upsertHistoricalEvents(events);
     inserted += result.inserted;
     updated += result.updated;
     chunks += 1;

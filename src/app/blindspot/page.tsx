@@ -25,7 +25,7 @@ export default async function BlindspotPage({
   const params = await searchParams;
   const side =
     params.side === "left" || params.side === "right" ? params.side : "all";
-  const all = getBlindspotStories({ limit: 250 });
+  const all = await getBlindspotStories({ limit: 250 });
   const stories =
     side === "all"
       ? all
@@ -36,7 +36,7 @@ export default async function BlindspotPage({
   const rightCount = all.filter(
     (entry) => entry.coverage.blindspot === "right",
   ).length;
-  const ratings = getSourceRatings();
+  const ratings = await getSourceRatings();
   const rated = ratings.filter((rating) => rating.bias !== "unrated").length;
   const ratingCounts = {
     left: 0,

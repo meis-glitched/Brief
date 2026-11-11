@@ -1,6 +1,6 @@
 # Brief
 
-A local-first news intelligence desk. Brief pulls the wires, dedupes the noise, clusters coverage into stories, and writes a daily brief with a local model. Everything lives in SQLite on your machine.
+A local-first news intelligence desk. Brief pulls the wires, dedupes the noise, clusters coverage into stories, and writes a daily brief with a local model. It runs against local SQLite in development and Turso/libSQL in production.
 
 ## Features
 
@@ -9,8 +9,8 @@ A local-first news intelligence desk. Brief pulls the wires, dedupes the noise, 
 - **Today** — lead story, multi-source coverage, source pulse, and an Ollama-written brief.
 - **Reader** — in-app article view with Readability extraction, feed-summary fallback, and an original-link escape hatch.
 - **Images** — feed and story thumbnails, a proxy/cache route, RSS and JSON-LD image extraction, and a media backfill CLI.
-- **History** — a dated timeline of the documented human record, from On This Day and Wikidata, with country and era filters and cached Wikipedia thumbnails.
-- **Wikipedia** — a local reference desk: search Wikipedia, read cached pages, and inspect lead images with license and file-page links.
+- **History** — a dated timeline of the documented human record, from On This Day and Wikidata, with country and era filters and cached Wikipedia thumbnails. Requires an explicit history import.
+- **Wikipedia** — a local reference desk: search Wikipedia, read cached pages, and inspect lead images with license and file-page links. Uses local cache and degrades gracefully when Wikipedia is unavailable.
 - **Country and date filters** — apply a country and a date range to Today, Stories, and the wire; filter history by country, era, and record type.
 - **Keyboard-first** — command palette, `j`/`k` navigation, save/read actions, `g`-prefixed route jumps.
 - **Source health** — per-source article counts, last fetch, RSS vs HTML mode, enable/disable, and outlet bias labels.
@@ -22,7 +22,7 @@ A local-first news intelligence desk. Brief pulls the wires, dedupes the noise, 
 
 ## Stack
 
-Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Drizzle ORM, `better-sqlite3`, FTS5, Ollama.
+Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Drizzle ORM, `@libsql/client`, SQLite/Turso, FTS5, Ollama.
 
 ## Setup
 
@@ -34,7 +34,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000. The database is created and migrated automatically at `data/brief.db`, and the source list is seeded on first use.
+Open http://localhost:3000. With no Turso variables set, the database is created and migrated automatically at `data/brief.db`, and the source list is seeded on first use.
 
 To pull the wires:
 
@@ -103,7 +103,9 @@ Briefs have a 150s generation budget. If the model is unavailable or too slow, t
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BRIEF_DB_PATH` | `./data/brief.db` locally, `/tmp/brief/data/brief.db` on Vercel | SQLite database location |
+| `TURSO_DATABASE_URL` | — | Turso/libSQL URL; overrides the local file database |
+| `TURSO_AUTH_TOKEN` | — | Turso auth token |
+| `BRIEF_DB_PATH` | `./data/brief.db` locally, `/tmp/brief/data/brief.db` on Vercel | Local SQLite database location when Turso is not configured |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Local Ollama endpoint |
 | `OLLAMA_MODEL` | `dolphin3:8b` | Model used for the daily brief |
 | `BRIEF_CLUSTER_THRESHOLD` | `0.42` | Cosine similarity needed to join a story |
@@ -134,16 +136,19 @@ Briefs have a 150s generation budget. If the model is unavailable or too slow, t
 | `npm run db:generate` | Generate a Drizzle migration |
 | `npm run db:studio` | Open Drizzle Studio |
 
-## Deploying
+## Deploying and operations
 
-Vercel and similar serverless hosts have a read-only filesystem outside `/tmp`. Brief detects `VERCEL=1` and writes SQLite and the image cache under `/tmp/brief/data`. That keeps the app running, but the data is **ephemeral**: a cold start gets a fresh database, and separate instances do not share state.
+Vercel and similar serverless hosts have a read-only filesystem outside `/tmp`, so local SQLite is **ephemeral** there. For a persistent deployment, use Turso:
 
-For a persistent deployment, either:
+1. Create a database with the Turso CLI or dashboard.
+2. Set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in the host's environment.
+3. Deploy, then run an ingest so the remote database is seeded and populated.
 
-- point `BRIEF_DB_PATH` at a persistent volume on a host that provides one, or
-- move the data layer to a hosted SQLite/libSQL/Postgres service.
+The schema, FTS tables, sources, and AllSides ratings are initialized automatically on first use. Proxied article images are cached in local storage, so that cache may be cold or non-persistent on serverless deployments.
 
-Ollama is only reachable from a deployed app if you expose it publicly; otherwise the daily brief falls back to the deterministic summary.
+`GET /api/health` reports storage/capability status, the last ingest run, and deployment warnings (including ephemeral local DB on serverless).
+
+Ollama is only reachable from a deployed app if you expose it publicly; otherwise the daily brief falls back to the deterministic summary. Wikipedia and history content depend on external sources and local caches/imports: the history timeline is empty until `npm run import:history`, and Wikipedia pages fall back to cache when upstream requests fail. Server/API failures are logged as structured JSON to stdout/stderr for diagnosis.
 
 ## Bias data
 
@@ -179,7 +184,7 @@ There are no AI-written coverage summaries and no factuality labels in this laye
 ```
 src/app/          routes: Today, feed, stories, reader, history, wiki, blindspot, my bias, saved, sources, API
 src/components/   shell, command palette, filters, feed, reader, story rows, brief panel, source UI, bias/coverage UI
-src/db/           Drizzle schema, SQLite init, FTS triggers, queries, coverage queries, reader/wiki caches
+src/db/           Drizzle schema, libSQL init, FTS triggers, queries, coverage queries, reader/wiki caches
 src/lib/ingest/   source definitions, fetch, ingest run
 src/lib/history/  On This Day and Wikidata importers, event upsert
 src/lib/          clustering, countries, Ollama brief, source ratings, reader, media, Wikipedia, text utilities

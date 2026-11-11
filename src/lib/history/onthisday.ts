@@ -106,14 +106,11 @@ export async function importOnThisDay(options: {
   days: number;
   failed: number;
 }> {
+  const importedRows = await sqlite.all<{ external_id: string }>(
+    "SELECT DISTINCT external_id FROM historical_events WHERE external_id LIKE 'otd:%'",
+  );
   const imported = new Set(
-    (
-      sqlite
-        .prepare(
-          "SELECT DISTINCT external_id FROM historical_events WHERE external_id LIKE 'otd:%'",
-        )
-        .all() as Array<{ external_id: string }>
-    )
+    importedRows
       .map((row) => row.external_id.match(/^otd:(\d+)-(\d+):/))
       .filter((match): match is RegExpMatchArray => Boolean(match))
       .map((match) => `${Number(match[1])}-${Number(match[2])}`),
@@ -170,7 +167,7 @@ export async function importOnThisDay(options: {
         }
       }
 
-      const result = upsertHistoricalEvents(items);
+      const result = await upsertHistoricalEvents(items);
       inserted += result.inserted;
       updated += result.updated;
       completed += 1;

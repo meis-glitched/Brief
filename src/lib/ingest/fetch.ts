@@ -1,6 +1,7 @@
 import { load } from "cheerio";
 import Parser from "rss-parser";
 import type { Source } from "@/db/schema";
+import { logWarn } from "@/lib/logger";
 import { feedHtmlFromItem, imageFromItem } from "@/lib/media";
 import { cleanTitle, hash, normalizeUrl, stripHtml } from "@/lib/utils";
 
@@ -56,7 +57,8 @@ function jsonArray(value: string | null): string[] {
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
+  } catch (error) {
+    logWarn("ingest.fetch", "Invalid JSON array in source config", { value, error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }

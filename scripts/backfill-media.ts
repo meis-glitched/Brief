@@ -23,6 +23,7 @@ function has(name: string): boolean {
   return process.argv.includes(name);
 }
 
+async function main() {
 const limit = Math.max(1, Number.parseInt(value("--limit") ?? "500", 10) || 500);
 const concurrency = Math.max(1, Number.parseInt(value("--concurrency") ?? "4", 10) || 4);
 const source = value("--source");
@@ -42,25 +43,37 @@ if (source) {
 }
 params.push(limit);
 
-const rows = sqlite
-  .prepare(
-    `SELECT a.id, a.url, a.resolved_url, a.image_url, so.name AS source_name
-     FROM articles a
-     JOIN sources so ON so.id = a.source_id
-     WHERE ${where.join(" AND ")}
-     ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
-     LIMIT ?`,
-  )
-  .all(...params) as Row[];
-
-const update = sqlite.prepare(
-  `UPDATE articles
-   SET image_url = COALESCE(?, image_url),
-       image_width = COALESCE(?, image_width),
-       image_height = COALESCE(?, image_height),
-       resolved_url = COALESCE(?, resolved_url)
-   WHERE id = ?`,
+const rows = await sqlite.all<Row>(
+  `SELECT a.id, a.url, a.resolved_url, a.image_url, so.name AS source_name
+   FROM articles a
+   JOIN sources so ON so.id = a.source_id
+   WHERE ${where.join(" AND ")}
+   ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+   LIMIT ?`,
+  ...params,
 );
+
+async function updateMedia(
+  imageUrl: string | null,
+  width: number | null,
+  height: number | null,
+  resolvedUrl: string | null,
+  id: number,
+) {
+  await sqlite.run(
+    `UPDATE articles
+     SET image_url = COALESCE(?, image_url),
+         image_width = COALESCE(?, image_width),
+         image_height = COALESCE(?, image_height),
+         resolved_url = COALESCE(?, resolved_url)
+     WHERE id = ?`,
+    imageUrl,
+    width,
+    height,
+    resolvedUrl,
+    id,
+  );
+}
 
 type Result = {
   id: number;
@@ -81,7 +94,7 @@ async function processRow(row: Row): Promise<Result> {
 
   if (row.image_url) {
     if (!dryRun && resolved) {
-      update.run(null, null, null, resolved, row.id);
+      await updateMedia(null, null, null, resolved, row.id);
     }
     return { id: row.id, image: true, resolved: Boolean(resolved), error: null };
   }
@@ -110,13 +123,13 @@ async function processRow(row: Row): Promise<Result> {
   const image = metaImage(html, url);
   if (!image) {
     if (!dryRun && resolved) {
-      update.run(null, null, null, resolved, row.id);
+      await updateMedia(null, null, null, resolved, row.id);
     }
     return { id: row.id, image: false, resolved: Boolean(resolved), error: "no image found" };
   }
 
   if (!dryRun) {
-    update.run(image.url, image.width, image.height, resolved, row.id);
+    await updateMedia(image.url, image.width, image.height, resolved, row.id);
   }
   return { id: row.id, image: true, resolved: Boolean(resolved), error: null };
 }
@@ -160,3 +173,10 @@ if (errors.length) {
     console.log(`  #${error.id}: ${error.error}`);
   }
 }
+
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

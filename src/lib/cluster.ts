@@ -22,31 +22,30 @@ const SIMILARITY_THRESHOLD = Number(
 );
 const MIN_SHARED_TOKENS = Number(process.env.BRIEF_CLUSTER_MIN_SHARED ?? 2);
 
-export function assignStories(windowDays = 3): {
+export async function assignStories(windowDays = 3): Promise<{
   assigned: number;
   created: number;
-} {
+}> {
   const since = Date.now() - windowDays * 86_400_000;
 
-  const stories = sqlite
-    .prepare("SELECT id, title FROM stories WHERE last_seen >= ?")
-    .all(since) as StoryRow[];
-  const members = sqlite
-    .prepare(
-      "SELECT story_id, title FROM articles WHERE story_id IS NOT NULL AND COALESCE(published_at, fetched_at) >= ?",
-    )
-    .all(since) as MemberRow[];
+  const stories = await sqlite.all<StoryRow>(
+    "SELECT id, title FROM stories WHERE last_seen >= ?",
+    since,
+  );
+  const members = await sqlite.all<MemberRow>(
+    "SELECT story_id, title FROM articles WHERE story_id IS NOT NULL AND COALESCE(published_at, fetched_at) >= ?",
+    since,
+  );
 
-  const pending = sqlite
-    .prepare(
-      `SELECT id, title, summary, published_at, fetched_at
-       FROM articles
-       WHERE story_id IS NULL AND hidden = 0
-         AND COALESCE(published_at, fetched_at) >= ?
-       ORDER BY COALESCE(published_at, fetched_at) DESC
-       LIMIT 1000`,
-    )
-    .all(since) as PendingArticle[];
+  const pending = await sqlite.all<PendingArticle>(
+    `SELECT id, title, summary, published_at, fetched_at
+     FROM articles
+     WHERE story_id IS NULL AND hidden = 0
+       AND COALESCE(published_at, fetched_at) >= ?
+     ORDER BY COALESCE(published_at, fetched_at) DESC
+     LIMIT 1000`,
+    since,
+  );
 
   if (pending.length === 0) return { assigned: 0, created: 0 };
 
@@ -67,22 +66,10 @@ export function assignStories(windowDays = 3): {
   for (const story of stories) addEntry(story.id, story.title);
   for (const member of members) addEntry(member.story_id, member.title);
 
-  const insertStory = sqlite.prepare(`
-    INSERT INTO stories
-      (title, summary, first_seen, last_seen, article_count, source_count, score, created_at)
-    VALUES (?, ?, ?, ?, 0, 0, 0, ?)
-  `);
-  const assignArticle = sqlite.prepare(
-    "UPDATE articles SET story_id = ? WHERE id = ?",
-  );
-  const touchStory = sqlite.prepare(
-    "UPDATE stories SET last_seen = MAX(last_seen, ?) WHERE id = ?",
-  );
-
   let assigned = 0;
   let created = 0;
 
-  const run = sqlite.transaction(() => {
+  await sqlite.transaction(async (tx) => {
     for (const article of pending) {
       const vector = vectorize(article.title, idf);
       const tokens = tokenize(article.title);
@@ -106,14 +93,21 @@ export function assignStories(windowDays = 3): {
       }
 
       if (bestId !== null && bestScore >= SIMILARITY_THRESHOLD) {
-        assignArticle.run(bestId, article.id);
-        touchStory.run(timestamp, bestId);
+        await tx.run("UPDATE articles SET story_id = ? WHERE id = ?", bestId, article.id);
+        await tx.run(
+          "UPDATE stories SET last_seen = MAX(last_seen, ?) WHERE id = ?",
+          timestamp,
+          bestId,
+        );
         addEntry(bestId, article.title);
         assigned += 1;
         continue;
       }
 
-      const result = insertStory.run(
+      const result = await tx.run(
+        `INSERT INTO stories
+          (title, summary, first_seen, last_seen, article_count, source_count, score, created_at)
+        VALUES (?, ?, ?, ?, 0, 0, 0, ?)`,
         article.title,
         article.summary,
         timestamp,
@@ -121,12 +115,12 @@ export function assignStories(windowDays = 3): {
         Date.now(),
       );
       const storyId = Number(result.lastInsertRowid);
-      assignArticle.run(storyId, article.id);
+      await tx.run("UPDATE articles SET story_id = ? WHERE id = ?", storyId, article.id);
       addEntry(storyId, article.title);
       created += 1;
     }
 
-    sqlite.exec(`
+    await tx.exec(`
       UPDATE stories SET
         article_count = (
           SELECT COUNT(*) FROM articles WHERE articles.story_id = stories.id
@@ -154,6 +148,5 @@ export function assignStories(windowDays = 3): {
     `);
   });
 
-  run();
   return { assigned, created };
 }

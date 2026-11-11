@@ -25,12 +25,12 @@ export default async function StoriesPage({
 }) {
   const params = await searchParams;
   const range = resolveNewsRange(params.range, params.from, params.to);
-  const stories = getWeeklyStories(120, {
+  const stories = await getWeeklyStories(120, {
     country: params.country,
     ...range,
   });
-  const stats = getStats();
-  const countries = getCountryFacets("news");
+  const stats = await getStats();
+  const countries = await getCountryFacets("news");
 
   return (
     <div>

@@ -18,8 +18,8 @@ function sideShare(
   };
 }
 
-export default function MyBiasPage() {
-  const bias = getMyBias();
+export default async function MyBiasPage() {
+  const bias = await getMyBias();
   const readSides = sideShare(bias.read.counts, bias.read.total);
   const availableSides = sideShare(bias.available.counts, bias.available.total);
 

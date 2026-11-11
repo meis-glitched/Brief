@@ -74,7 +74,8 @@ export function BriefPanel({ brief }: { brief: BriefState }) {
             </p>
             <p className="mt-2 text-sm leading-relaxed text-muted">
               Compose a local edit from today&apos;s stories. It runs against your
-              Ollama model and falls back to the raw edit if the model is offline.
+              Ollama model and falls back to a deterministic desk summary if the
+              model is offline or too slow.
             </p>
           </div>
         )}
@@ -82,7 +83,7 @@ export function BriefPanel({ brief }: { brief: BriefState }) {
 
       {error ? (
         <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-amber">
-          The brief could not be written. Try again.
+          The brief could not be written. Check logs/server output and try again.
         </p>
       ) : null}
 
